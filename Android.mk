@@ -35,6 +35,14 @@ regexp_re2_files := \
 	re2/unicode_casefold.cc \
 	re2/unicode_groups.cc
 
+MY_RE2_WARNING_FLAGS := \
+    -Wall -Werror \
+    -Wno-missing-field-initializers \
+    -Wno-sign-compare \
+    -Wno-tautological-undefined-compare \
+    -Wno-unused-local-typedef \
+    -Wno-unused-parameter \
+
 # Stlport version
 # =======================================================
 include $(CLEAR_VARS)
@@ -43,6 +51,8 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_CPP_EXTENSION := .cc
 LOCAL_C_INCLUDES += $(LOCAL_PATH)/re2 \
 		    external/stlport
+LOCAL_CFLAGS := $(MY_RE2_WARNING_FLAGS)
+
 LOCAL_SRC_FILES := $(regexp_re2_files)
 LOCAL_NDK_STL_VARIANT := stlport_static
 LOCAL_SDK_VERSION := 14
@@ -57,7 +67,10 @@ LOCAL_MODULE_TAGS := optional
 LOCAL_CPP_EXTENSION := .cc
 LOCAL_C_INCLUDES += $(LOCAL_PATH)/re2
 LOCAL_SRC_FILES := $(regexp_re2_files)
-LOCAL_CFLAGS += -frtti -Wno-unused-parameter
+LOCAL_CFLAGS += -frtti $(MY_RE2_WARNING_FLAGS)
+
 LOCAL_NDK_STL_VARIANT := gnustl_static
 LOCAL_SDK_VERSION := 14
 include $(BUILD_STATIC_LIBRARY)
+
+MY_RE2_WARNING_FLAGS :=
