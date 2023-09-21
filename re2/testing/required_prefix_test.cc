@@ -2,7 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include <string>
+
 #include "util/test.h"
+#include "util/logging.h"
 #include "re2/regexp.h"
 
 namespace re2 {
@@ -28,7 +31,7 @@ static PrefixTest tests[] = {
 
   // Otherwise, it should work.
   { "^abc$", true, "abc", false, "(?-m:$)" },
-  { "^abc", "true", "abc", false, "" },
+  { "^abc", true, "abc", false, "" },
   { "^(?i)abc", true, "abc", true, "" },
   { "^abcd*", true, "abc", false, "d*" },
   { "^[Aa][Bb]cd*", true, "ab", true, "cd*" },
@@ -44,18 +47,20 @@ TEST(RequiredPrefix, SimpleTests) {
       if (j == 0)
         flags = flags | Regexp::Latin1;
       Regexp* re = Regexp::Parse(t.regexp, flags, NULL);
-      CHECK(re) << " " << t.regexp;
+      ASSERT_TRUE(re != NULL) << " " << t.regexp;
+
       string p;
-      bool f = false;
-      Regexp* s = NULL;
-      CHECK_EQ(t.return_value, re->RequiredPrefix(&p, &f, &s))
-        << " " << t.regexp << " " << (j==0 ? "latin1" : "utf") << " " << re->Dump();
+      bool f;
+      Regexp* s;
+      ASSERT_EQ(t.return_value, re->RequiredPrefix(&p, &f, &s))
+        << " " << t.regexp << " " << (j==0 ? "latin1" : "utf")
+        << " " << re->Dump();
       if (t.return_value) {
-        CHECK_EQ(p, string(t.prefix))
+        ASSERT_EQ(p, string(t.prefix))
           << " " << t.regexp << " " << (j==0 ? "latin1" : "utf");
-        CHECK_EQ(f, t.foldcase)
+        ASSERT_EQ(f, t.foldcase)
           << " " << t.regexp << " " << (j==0 ? "latin1" : "utf");
-        CHECK_EQ(s->ToString(), string(t.suffix))
+        ASSERT_EQ(s->ToString(), string(t.suffix))
           << " " << t.regexp << " " << (j==0 ? "latin1" : "utf");
         s->Decref();
       }
