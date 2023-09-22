@@ -52,9 +52,12 @@ cc_library_static {
     ],
 }
 
-cc_test {
+// This test uses a minimal fork of GTest that is incompatible with Android
+// testing infrastructure, so it is currently a cc_binary rather than a cc_test.
+// It can be run directly and should produce a pass/fail result:
+// out/host/linux-x86/bin/regex_re2_test
+cc_binary_host {
     name: "regex_re2_test",
-    host_supported: true,
     srcs: [
         "re2/testing/backtrack.cc",
         "re2/testing/charclass_test.cc",
