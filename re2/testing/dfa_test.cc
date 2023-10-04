@@ -2,15 +2,21 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+#include <stdint.h>
+#include <string>
+#include <thread>
+#include <vector>
+
 #include "util/test.h"
-#include "util/thread.h"
+#include "util/logging.h"
+#include "util/strutil.h"
 #include "re2/prog.h"
 #include "re2/re2.h"
 #include "re2/regexp.h"
 #include "re2/testing/regexp_generator.h"
 #include "re2/testing/string_generator.h"
 
-DECLARE_bool(re2_dfa_bail_when_slow);
+static const bool UsingMallocCounter = false;
 
 DEFINE_int32(size, 8, "log2(number of DFA nodes)");
 DEFINE_int32(repeat, 2, "Repetition count.");
@@ -20,17 +26,10 @@ namespace re2 {
 
 // Check that multithreaded access to DFA class works.
 
-// Helper thread: builds entire DFA for prog.
-class BuildThread : public Thread {
- public:
-  BuildThread(Prog* prog) : prog_(prog) {}
-  virtual void Run() {
-    CHECK(prog_->BuildEntireDFA(Prog::kFirstMatch));
-  }
-
- private:
-  Prog* prog_;
-};
+// Helper function: builds entire DFA for prog.
+static void DoBuild(Prog* prog) {
+  ASSERT_TRUE(prog->BuildEntireDFA(Prog::kFirstMatch, nullptr));
+}
 
 TEST(Multithreaded, BuildEntireDFA) {
   // Create regexp with 2^FLAGS_size states in DFA.
@@ -38,48 +37,37 @@ TEST(Multithreaded, BuildEntireDFA) {
   for (int i = 0; i < FLAGS_size; i++)
     s += "[ab]";
   s += "b";
+  Regexp* re = Regexp::Parse(s, Regexp::LikePerl, NULL);
+  ASSERT_TRUE(re != NULL);
 
   // Check that single-threaded code works.
   {
-    //LOG(INFO) << s;
-    Regexp* re = Regexp::Parse(s.c_str(), Regexp::LikePerl, NULL);
-    CHECK(re);
     Prog* prog = re->CompileToProg(0);
-    CHECK(prog);
-    BuildThread* t = new BuildThread(prog);
-    t->SetJoinable(true);
-    t->Start();
-    t->Join();
-    delete t;
+    ASSERT_TRUE(prog != NULL);
+
+    std::thread t(DoBuild, prog);
+    t.join();
+
     delete prog;
-    re->Decref();
   }
 
   // Build the DFA simultaneously in a bunch of threads.
   for (int i = 0; i < FLAGS_repeat; i++) {
-    Regexp* re = Regexp::Parse(s.c_str(), Regexp::LikePerl, NULL);
-    CHECK(re);
     Prog* prog = re->CompileToProg(0);
-    CHECK(prog);
+    ASSERT_TRUE(prog != NULL);
 
-    vector<BuildThread*> threads;
-    for (int j = 0; j < FLAGS_threads; j++) {
-      BuildThread *t = new BuildThread(prog);
-      t->SetJoinable(true);
-      threads.push_back(t);
-    }
+    std::vector<std::thread> threads;
     for (int j = 0; j < FLAGS_threads; j++)
-      threads[j]->Start();
-    for (int j = 0; j < FLAGS_threads; j++) {
-      threads[j]->Join();
-      delete threads[j];
-    }
+      threads.emplace_back(DoBuild, prog);
+    for (int j = 0; j < FLAGS_threads; j++)
+      threads[j].join();
 
     // One more compile, to make sure everything is okay.
-    prog->BuildEntireDFA(Prog::kFirstMatch);
+    prog->BuildEntireDFA(Prog::kFirstMatch, nullptr);
     delete prog;
-    re->Decref();
   }
+
+  re->Decref();
 }
 
 // Check that DFA size requirements are followed.
@@ -87,36 +75,33 @@ TEST(Multithreaded, BuildEntireDFA) {
 // the DFA once the memory limits are reached.
 TEST(SingleThreaded, BuildEntireDFA) {
   // Create regexp with 2^30 states in DFA.
-  string s = "a";
-  for (int i = 0; i < 30; i++)
-    s += "[ab]";
-  s += "b";
+  Regexp* re = Regexp::Parse("a[ab]{30}b", Regexp::LikePerl, NULL);
+  ASSERT_TRUE(re != NULL);
 
-  //LOG(INFO) << s;
-  Regexp* re = Regexp::Parse(s.c_str(), Regexp::LikePerl, NULL);
-  CHECK(re);
-  int max = 24;
-  for (int i = 17; i < max; i++) {
-    int limit = 1<<i;
-    int usage;
-    //int progusage, dfamem;
+  for (int i = 17; i < 24; i++) {
+    int64_t limit = int64_t{1}<<i;
+    int64_t usage;
+    //int64_t progusage, dfamem;
     {
       testing::MallocCounter m(testing::MallocCounter::THIS_THREAD_ONLY);
       Prog* prog = re->CompileToProg(limit);
-      CHECK(prog);
+      ASSERT_TRUE(prog != NULL);
       //progusage = m.HeapGrowth();
       //dfamem = prog->dfa_mem();
-      prog->BuildEntireDFA(Prog::kFirstMatch);
-      prog->BuildEntireDFA(Prog::kLongestMatch);
+      prog->BuildEntireDFA(Prog::kFirstMatch, nullptr);
+      prog->BuildEntireDFA(Prog::kLongestMatch, nullptr);
       usage = m.HeapGrowth();
       delete prog;
     }
-    if (!UsingMallocCounter)
-      continue;
-    //LOG(INFO) << StringPrintf("Limit %d: prog used %d, DFA budget %d, total %d\n",
-    //                          limit, progusage, dfamem, usage);
-    CHECK_GT(usage, limit*9/10);
-    CHECK_LT(usage, limit + (16<<10));  // 16kB of slop okay
+    if (UsingMallocCounter) {
+      //LOG(INFO) << "limit " << limit << ", "
+      //          << "prog usage " << progusage << ", "
+      //          << "DFA budget " << dfamem << ", "
+      //          << "total " << usage;
+      // Tolerate +/- 10%.
+      ASSERT_GT(usage, limit*9/10);
+      ASSERT_LT(usage, limit*11/10);
+    }
   }
   re->Decref();
 }
@@ -132,10 +117,10 @@ TEST(SingleThreaded, BuildEntireDFA) {
 // position in the input, never reusing any states until it gets to the
 // end of the string.  This is the worst possible case for DFA execution.
 static string DeBruijnString(int n) {
-  CHECK_LT(n, 8*sizeof(int));
+  CHECK_LT(n, static_cast<int>(8*sizeof(int)));
   CHECK_GT(n, 0);
 
-  vector<bool> did(1<<n);
+  std::vector<bool> did(size_t{1}<<n);
   for (int i = 0; i < 1<<n; i++)
     did[i] = false;
 
@@ -174,6 +159,14 @@ static string DeBruijnString(int n) {
 // 2^n byte limit, it must be handling out-of-memory conditions
 // gracefully.
 TEST(SingleThreaded, SearchDFA) {
+  // The De Bruijn string is the worst case input for this regexp.
+  // By default, the DFA will notice that it is flushing its cache
+  // too frequently and will bail out early, so that RE2 can use the
+  // NFA implementation instead.  (The DFA loses its speed advantage
+  // if it can't get a good cache hit rate.)
+  // Tell the DFA to trudge along instead.
+  Prog::TEST_dfa_should_bail_when_slow(false);
+
   // Choice of n is mostly arbitrary, except that:
   //   * making n too big makes the test run for too long.
   //   * making n too small makes the DFA refuse to run,
@@ -183,132 +176,111 @@ TEST(SingleThreaded, SearchDFA) {
 
   Regexp* re = Regexp::Parse(StringPrintf("0[01]{%d}$", n),
                              Regexp::LikePerl, NULL);
-  CHECK(re);
+  ASSERT_TRUE(re != NULL);
 
   // The De Bruijn string for n ends with a 1 followed by n 0s in a row,
   // which is not a match for 0[01]{n}$.  Adding one more 0 is a match.
   string no_match = DeBruijnString(n);
   string match = no_match + "0";
 
-  // The De Bruijn string is the worst case input for this regexp.
-  // By default, the DFA will notice that it is flushing its cache
-  // too frequently and will bail out early, so that RE2 can use the
-  // NFA implementation instead.  (The DFA loses its speed advantage
-  // if it can't get a good cache hit rate.)
-  // Tell the DFA to trudge along instead.
-  FLAGS_re2_dfa_bail_when_slow = false;
-
-  int64 usage;
-  int64 peak_usage;
+  int64_t usage;
+  int64_t peak_usage;
   {
     testing::MallocCounter m(testing::MallocCounter::THIS_THREAD_ONLY);
     Prog* prog = re->CompileToProg(1<<n);
-    CHECK(prog);
+    ASSERT_TRUE(prog != NULL);
     for (int i = 0; i < 10; i++) {
-      bool matched, failed = false;
-      matched = prog->SearchDFA(match, NULL,
-                                Prog::kUnanchored, Prog::kFirstMatch,
-                                NULL, &failed, NULL);
-      CHECK(!failed);
-      CHECK(matched);
-      matched = prog->SearchDFA(no_match, NULL,
-                                Prog::kUnanchored, Prog::kFirstMatch,
-                                NULL, &failed, NULL);
-      CHECK(!failed);
-      CHECK(!matched);
+      bool matched = false;
+      bool failed = false;
+      matched = prog->SearchDFA(match, StringPiece(), Prog::kUnanchored,
+                                Prog::kFirstMatch, NULL, &failed, NULL);
+      ASSERT_FALSE(failed);
+      ASSERT_TRUE(matched);
+      matched = prog->SearchDFA(no_match, StringPiece(), Prog::kUnanchored,
+                                Prog::kFirstMatch, NULL, &failed, NULL);
+      ASSERT_FALSE(failed);
+      ASSERT_FALSE(matched);
     }
     usage = m.HeapGrowth();
     peak_usage = m.PeakHeapGrowth();
     delete prog;
   }
+  if (UsingMallocCounter) {
+    //LOG(INFO) << "usage " << usage << ", "
+    //          << "peak usage " << peak_usage;
+    ASSERT_LT(usage, 1<<n);
+    ASSERT_LT(peak_usage, 1<<n);
+  }
   re->Decref();
 
-  if (!UsingMallocCounter)
-    return;
-  //LOG(INFO) << "usage " << usage << " " << peak_usage;
-  CHECK_LT(usage, 1<<n);
-  CHECK_LT(peak_usage, 1<<n);
+  // Reset to original behaviour.
+  Prog::TEST_dfa_should_bail_when_slow(true);
 }
 
-// Helper thread: searches for match, which should match,
+// Helper function: searches for match, which should match,
 // and no_match, which should not.
-class SearchThread : public Thread {
- public:
-  SearchThread(Prog* prog, const StringPiece& match,
-               const StringPiece& no_match)
-    : prog_(prog), match_(match), no_match_(no_match) {}
-
-  virtual void Run() {
-    for (int i = 0; i < 2; i++) {
-      bool matched, failed = false;
-      matched = prog_->SearchDFA(match_, NULL,
-                                 Prog::kUnanchored, Prog::kFirstMatch,
-                                 NULL, &failed, NULL);
-      CHECK(!failed);
-      CHECK(matched);
-      matched = prog_->SearchDFA(no_match_, NULL,
-                                 Prog::kUnanchored, Prog::kFirstMatch,
-                                 NULL, &failed, NULL);
-      CHECK(!failed);
-      CHECK(!matched);
-    }
+static void DoSearch(Prog* prog, const StringPiece& match,
+                     const StringPiece& no_match) {
+  for (int i = 0; i < 2; i++) {
+    bool matched = false;
+    bool failed = false;
+    matched = prog->SearchDFA(match, StringPiece(), Prog::kUnanchored,
+                              Prog::kFirstMatch, NULL, &failed, NULL);
+    ASSERT_FALSE(failed);
+    ASSERT_TRUE(matched);
+    matched = prog->SearchDFA(no_match, StringPiece(), Prog::kUnanchored,
+                              Prog::kFirstMatch, NULL, &failed, NULL);
+    ASSERT_FALSE(failed);
+    ASSERT_FALSE(matched);
   }
-
- private:
-  Prog* prog_;
-  StringPiece match_;
-  StringPiece no_match_;
-};
+}
 
 TEST(Multithreaded, SearchDFA) {
+  Prog::TEST_dfa_should_bail_when_slow(false);
+
   // Same as single-threaded test above.
   const int n = 18;
   Regexp* re = Regexp::Parse(StringPrintf("0[01]{%d}$", n),
                              Regexp::LikePerl, NULL);
-  CHECK(re);
+  ASSERT_TRUE(re != NULL);
   string no_match = DeBruijnString(n);
   string match = no_match + "0";
-  FLAGS_re2_dfa_bail_when_slow = false;
 
   // Check that single-threaded code works.
   {
     Prog* prog = re->CompileToProg(1<<n);
-    CHECK(prog);
-    SearchThread* t = new SearchThread(prog, match, no_match);
-    t->SetJoinable(true);
-    t->Start();
-    t->Join();
-    delete t;
+    ASSERT_TRUE(prog != NULL);
+
+    std::thread t(DoSearch, prog, match, no_match);
+    t.join();
+
     delete prog;
   }
 
   // Run the search simultaneously in a bunch of threads.
   // Reuse same flags for Multithreaded.BuildDFA above.
   for (int i = 0; i < FLAGS_repeat; i++) {
-    //LOG(INFO) << "Search " << i;
     Prog* prog = re->CompileToProg(1<<n);
-    CHECK(prog);
+    ASSERT_TRUE(prog != NULL);
 
-    vector<SearchThread*> threads;
-    for (int j = 0; j < FLAGS_threads; j++) {
-      SearchThread *t = new SearchThread(prog, match, no_match);
-      t->SetJoinable(true);
-      threads.push_back(t);
-    }
+    std::vector<std::thread> threads;
     for (int j = 0; j < FLAGS_threads; j++)
-      threads[j]->Start();
-    for (int j = 0; j < FLAGS_threads; j++) {
-      threads[j]->Join();
-      delete threads[j];
-    }
+      threads.emplace_back(DoSearch, prog, match, no_match);
+    for (int j = 0; j < FLAGS_threads; j++)
+      threads[j].join();
+
     delete prog;
   }
+
   re->Decref();
+
+  // Reset to original behaviour.
+  Prog::TEST_dfa_should_bail_when_slow(true);
 }
 
 struct ReverseTest {
-  const char *regexp;
-  const char *text;
+  const char* regexp;
+  const char* text;
   bool match;
 };
 
@@ -326,13 +298,78 @@ TEST(DFA, ReverseMatch) {
   for (int i = 0; i < arraysize(reverse_tests); i++) {
     const ReverseTest& t = reverse_tests[i];
     Regexp* re = Regexp::Parse(t.regexp, Regexp::LikePerl, NULL);
-    CHECK(re);
-    Prog *prog = re->CompileToReverseProg(0);
-    CHECK(prog);
+    ASSERT_TRUE(re != NULL);
+    Prog* prog = re->CompileToReverseProg(0);
+    ASSERT_TRUE(prog != NULL);
     bool failed = false;
-    bool matched = prog->SearchDFA(t.text, NULL, Prog::kUnanchored, Prog::kFirstMatch, NULL, &failed, NULL);
+    bool matched = prog->SearchDFA(t.text, StringPiece(), Prog::kUnanchored,
+                                   Prog::kFirstMatch, NULL, &failed, NULL);
     if (matched != t.match) {
       LOG(ERROR) << t.regexp << " on " << t.text << ": want " << t.match;
+      nfail++;
+    }
+    delete prog;
+    re->Decref();
+  }
+  EXPECT_EQ(nfail, 0);
+}
+
+struct CallbackTest {
+  const char* regexp;
+  const char* dump;
+};
+
+// Test that DFA::BuildAllStates() builds the expected DFA states
+// and issues the expected callbacks. These test cases reflect the
+// very compact encoding of the callbacks, but that also makes them
+// very difficult to understand, so let's work through "\\Aa\\z".
+// There are three slots per DFA state because the bytemap has two
+// equivalence classes and there is a third slot for kByteEndText:
+//   0: all bytes that are not 'a'
+//   1: the byte 'a'
+//   2: kByteEndText
+// -1 means that there is no transition from that DFA state to any
+// other DFA state for that slot. The valid transitions are thus:
+//   state 0 --slot 1--> state 1
+//   state 1 --slot 2--> state 2
+// The double brackets indicate that state 2 is a matching state.
+// Putting it together, this means that the DFA must consume the
+// byte 'a' and then hit end of text. Q.E.D.
+CallbackTest callback_tests[] = {
+  { "\\Aa\\z", "[-1,1,-1] [-1,-1,2] [[-1,-1,-1]]" },
+  { "\\Aab\\z", "[-1,1,-1,-1] [-1,-1,2,-1] [-1,-1,-1,3] [[-1,-1,-1,-1]]" },
+  { "\\Aa*b\\z", "[-1,0,1,-1] [-1,-1,-1,2] [[-1,-1,-1,-1]]" },
+  { "\\Aa+b\\z", "[-1,1,-1,-1] [-1,1,2,-1] [-1,-1,-1,3] [[-1,-1,-1,-1]]" },
+  { "\\Aa?b\\z", "[-1,1,2,-1] [-1,-1,2,-1] [-1,-1,-1,3] [[-1,-1,-1,-1]]" },
+  { "\\Aa\\C*\\z", "[-1,1,-1] [1,1,2] [[-1,-1,-1]]" },
+  { "\\Aa\\C*", "[-1,1,-1] [2,2,3] [[2,2,2]] [[-1,-1,-1]]" },
+  { "a\\C*", "[0,1,-1] [2,2,3] [[2,2,2]] [[-1,-1,-1]]" },
+  { "\\C*", "[1,2] [[1,1]] [[-1,-1]]" },
+  { "a", "[0,1,-1] [2,2,2] [[-1,-1,-1]]"} ,
+};
+
+TEST(DFA, Callback) {
+  int nfail = 0;
+  for (int i = 0; i < arraysize(callback_tests); i++) {
+    const CallbackTest& t = callback_tests[i];
+    Regexp* re = Regexp::Parse(t.regexp, Regexp::LikePerl, NULL);
+    ASSERT_TRUE(re != NULL);
+    Prog* prog = re->CompileToProg(0);
+    ASSERT_TRUE(prog != NULL);
+    string dump;
+    prog->BuildEntireDFA(Prog::kLongestMatch, [&](const int* next, bool match) {
+      ASSERT_TRUE(next != NULL);
+      if (!dump.empty())
+        StringAppendF(&dump, " ");
+      StringAppendF(&dump, match ? "[[" : "[");
+      for (int b = 0; b < prog->bytemap_range() + 1; b++)
+        StringAppendF(&dump, "%d,", next[b]);
+      dump.pop_back();
+      StringAppendF(&dump, match ? "]]" : "]");
+    });
+    if (dump != t.dump) {
+      LOG(ERROR) << t.regexp << " bytemap:\n" << prog->DumpByteMap();
+      LOG(ERROR) << t.regexp << " dump:\ngot " << dump << "\nwant " << t.dump;
       nfail++;
     }
     delete prog;
