@@ -12,6 +12,7 @@ license {
 cc_library_static {
     name: "libregex_re2",
     host_supported: true,
+    product_available: true,
     vendor_available: true,
     stl: "libc++",
     apex_available: [
