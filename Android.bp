@@ -51,6 +51,7 @@ cc_library_static {
         "//external/grpc-grpc:__subpackages__",
         "//external/kythe:__subpackages__",
     ],
+    min_sdk_version: "apex_inherit",
 }
 
 // This test uses a minimal fork of GTest that is incompatible with Android
