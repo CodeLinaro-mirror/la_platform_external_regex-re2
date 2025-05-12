@@ -1,15 +1,19 @@
+# This project was upgraded with external_updater.
+# Usage: tools/external_updater/updater.sh update external/regex-re2
+# For more info, check https://cs.android.com/android/platform/superproject/main/+/main:tools/external_updater/README.md
+
 name: "regex-re22"
 description: "RE2 is a fast, safe, thread-friendly alternative to backtracking regular expression engines like those used in PCRE, Perl, and Python. It is a C++ library."
 third_party {
   license_type: NOTICE
   last_upgrade_date {
-    year: 2019
-    month: 2
-    day: 20
+    year: 2025
+    month: 5
+    day: 10
   }
   identifier {
     type: "Git"
     value: "https://github.com/google/re2"
-    version: "79ef3b2d31f06493f687ef9e947d9632bad54b9b"
+    version: "2021-04-01"
   }
 }
