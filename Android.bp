@@ -22,6 +22,7 @@ cc_library_static {
     srcs: [
         "util/rune.cc",
         "util/strutil.cc",
+        "re2/bitmap256.cc",
         "re2/bitstate.cc",
         "re2/compile.cc",
         "re2/dfa.cc",
@@ -38,7 +39,6 @@ cc_library_static {
         "re2/regexp.cc",
         "re2/set.cc",
         "re2/simplify.cc",
-        "re2/stringpiece.cc",
         "re2/tostring.cc",
         "re2/unicode_casefold.cc",
         "re2/unicode_groups.cc",
@@ -48,6 +48,9 @@ cc_library_static {
         "-Wno-missing-field-initializers",
     ],
     export_include_dirs: ["."],
+    static_libs: [
+        "libabsl",
+    ],
     visibility: [
         "//external/grpc-grpc:__subpackages__",
         "//external/kythe:__subpackages__",
@@ -55,11 +58,7 @@ cc_library_static {
     min_sdk_version: "apex_inherit",
 }
 
-// This test uses a minimal fork of GTest that is incompatible with Android
-// testing infrastructure, so it is currently a cc_binary rather than a cc_test.
-// It can be run directly and should produce a pass/fail result:
-// out/host/linux-x86/bin/regex_re2_test
-cc_binary_host {
+cc_test_host {
     name: "regex_re2_test",
     srcs: [
         "re2/testing/backtrack.cc",
@@ -83,7 +82,6 @@ cc_binary_host {
         "re2/testing/string_generator_test.cc",
         "re2/testing/tester.cc",
         "util/pcre.cc",
-        "util/test.cc",
     ],
     cflags: [
         "-Wno-unused-parameter",
@@ -91,5 +89,6 @@ cc_binary_host {
     ],
     static_libs: [
         "libregex_re2",
+        "libabsl",
     ],
 }
