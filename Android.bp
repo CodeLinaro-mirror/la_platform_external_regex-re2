@@ -49,7 +49,10 @@ cc_library_static {
     ],
     export_include_dirs: ["."],
     static_libs: [
-        "libabsl",
+        "absl_strings",
+        "absl_container_flat_hash_map",
+        "absl_container_flat_hash_set",
+        "absl_synchronization",
     ],
     visibility: [
         "//external/grpc-grpc:__subpackages__",
@@ -88,7 +91,10 @@ cc_test_host {
         "-Wno-missing-field-initializers",
     ],
     static_libs: [
+        "absl_flags_flag",
+        "absl_strings",
+        "absl_strings_str_format",
+        "absl_types_optional",
         "libregex_re2",
-        "libabsl",
     ],
 }
