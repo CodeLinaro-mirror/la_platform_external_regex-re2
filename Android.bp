@@ -18,6 +18,10 @@ cc_library_static {
     stl: "libc++",
     apex_available: [
         "//apex_available:platform",
+        "com.android.adservices",
+        "com.android.extservices",
+        "com.android.neuralnetworks",
+        "com.android.ondevicepersonalization",
     ],
     srcs: [
         "util/rune.cc",
@@ -48,16 +52,23 @@ cc_library_static {
         "-Wno-missing-field-initializers",
     ],
     export_include_dirs: ["."],
-    static_libs: [
+    whole_static_libs: [
         "absl_strings",
         "absl_container_flat_hash_map",
         "absl_container_flat_hash_set",
         "absl_synchronization",
+        "absl_types_optional",
+    ],
+    export_static_lib_headers: [
+        "absl_strings",
+        "absl_types_optional",
     ],
     visibility: [
         "//external/grpc-grpc:__subpackages__",
         "//external/kythe:__subpackages__",
+        "//external/tensorflow:__subpackages__",
     ],
+    sdk_version: "current",
     min_sdk_version: "apex_inherit",
 }
 
