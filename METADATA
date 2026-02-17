@@ -14,6 +14,7 @@ third_party {
   identifier {
     type: "Git"
     value: "https://github.com/google/re2"
-    version: "2023-06-01"
+    version: "03da4fc0857c285e3a26782f6bc8931c4c950df4"
+    closest_version: "2023-06-01"
   }
 }
