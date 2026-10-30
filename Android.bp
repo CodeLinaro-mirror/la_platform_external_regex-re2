@@ -66,6 +66,7 @@ cc_library_static {
     visibility: [
         "//external/grpc-grpc:__subpackages__",
         "//external/kythe:__subpackages__",
+        "//external/litert:__subpackages__",
         "//external/tensorflow:__subpackages__",
     ],
     sdk_version: "current",
