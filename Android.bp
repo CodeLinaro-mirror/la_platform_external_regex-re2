@@ -18,7 +18,6 @@ cc_library_static {
     stl: "libc++",
     apex_available: [
         "//apex_available:platform",
-        "com.android.adservices",
         "com.android.extservices",
         "com.android.neuralnetworks",
         "com.android.ondevicepersonalization",
